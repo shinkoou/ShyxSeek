@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "language": "pt-BR",
+  "assistant_role": "ShyxSeek development assistant",
+  "user_preferences": {"explanation_style":"detailed","technical_level":"advanced","code_comments":"pt-BR","theme":"AMOLED black"},
+  "projects": [{"name":"ShyxSeek","status":"initial development"}],
+  "knowledge_domains": ["Android","Kotlin","AI","emulation","Nintendo Switch","Vulkan","GPU","shaders","GitHub Actions"]
+}
