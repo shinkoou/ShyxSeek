@@ -41,6 +41,9 @@ import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilledIconButton
@@ -259,9 +262,9 @@ fun ChatScreen(vm: ChatViewModel = hiltViewModel()) {
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             StatusPill(
-                icon = Icons.Default.CloudOff,
-                text = "Offline de teste",
-                accent = ShyxPurpleSoft
+                icon = if (state.provider == "fake") Icons.Default.CloudOff else Icons.Default.CheckCircle,
+                text = if (state.provider == "fake") "Offline de teste" else "OpenAI ativa",
+                accent = if (state.provider == "fake") ShyxPurpleSoft else Color(0xFF77D6A3)
             )
             StatusPill(
                 icon = Icons.Default.Lock,
@@ -735,10 +738,23 @@ private fun ProjectCard(project: ProjectEntity) {
 @Composable
 fun SettingsScreen(vm: SettingsViewModel = hiltViewModel()) {
     val state by vm.state.collectAsState()
-    var provider by remember(state.provider) { mutableStateOf(state.provider) }
-    var baseUrl by remember(state.baseUrl) { mutableStateOf(state.baseUrl) }
-    var model by remember(state.model) { mutableStateOf(state.model) }
+    val connection by vm.connection.collectAsState()
+
+    var provider by remember(state.provider) {
+        mutableStateOf(state.provider)
+    }
+    var model by remember(state.model) {
+        mutableStateOf(state.model.ifBlank { "gpt-5.6-luna" })
+    }
     var apiKey by remember { mutableStateOf("") }
+
+    val models = remember {
+        listOf(
+            "gpt-5.6-luna" to "Luna · econômico",
+            "gpt-5.6-terra" to "Terra · equilibrado",
+            "gpt-5.6-sol" to "Sol · máximo"
+        )
+    }
 
     Column(
         modifier = Modifier
@@ -751,64 +767,184 @@ fun SettingsScreen(vm: SettingsViewModel = hiltViewModel()) {
         AppHeader("Ajustes", "Configure como o ShyxSeek responde")
         Spacer(Modifier.height(16.dp))
 
-        SettingsSection("Provider de IA") {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(
-                    selected = provider == "fake",
-                    onClick = { provider = "fake" },
-                    label = { Text("Fake offline") }
-                )
-                FilterChip(
-                    selected = provider == "openai_compatible",
-                    onClick = { provider = "openai_compatible" },
-                    label = { Text("OpenAI Compatible") }
-                )
-            }
-        }
-
-        Spacer(Modifier.height(12.dp))
-
-        SettingsSection("Conexão") {
-            OutlinedTextField(
-                value = baseUrl,
-                onValueChange = { baseUrl = it },
-                label = { Text("Base URL") },
-                modifier = Modifier.fillMaxWidth(),
-                enabled = provider != "fake",
-                singleLine = true
-            )
-            Spacer(Modifier.height(8.dp))
-            OutlinedTextField(
-                value = model,
-                onValueChange = { model = it },
-                label = { Text("Modelo") },
-                modifier = Modifier.fillMaxWidth(),
-                enabled = provider != "fake",
-                singleLine = true
-            )
-            Spacer(Modifier.height(8.dp))
-            OutlinedTextField(
-                value = apiKey,
-                onValueChange = { apiKey = it },
-                label = {
-                    Text(
-                        if (state.hasApiKey)
-                            "API key (já salva; preencha para trocar)"
-                        else
-                            "API key"
-                    )
-                },
-                modifier = Modifier.fillMaxWidth(),
-                enabled = provider != "fake",
-                singleLine = true
+        SettingsSection("Escolha a inteligência") {
+            Text(
+                text = "Sem Base URL e sem configuração técnica.",
+                color = MutedText,
+                style = MaterialTheme.typography.bodySmall
             )
             Spacer(Modifier.height(12.dp))
-            Button(
+
+            FilterChip(
+                selected = provider == "fake",
                 onClick = {
-                    vm.save(provider, baseUrl, model, apiKey)
+                    provider = "fake"
+                    vm.clearConnectionMessage()
+                },
+                label = { Text("Offline de teste") },
+                leadingIcon = {
+                    Icon(Icons.Default.CloudOff, contentDescription = null)
                 }
-            ) {
-                Text("Salvar configurações")
+            )
+
+            Spacer(Modifier.height(8.dp))
+
+            FilterChip(
+                selected = provider == "openai_compatible",
+                onClick = {
+                    provider = "openai_compatible"
+                    vm.clearConnectionMessage()
+                },
+                label = { Text("OpenAI") },
+                leadingIcon = {
+                    Icon(Icons.Default.CheckCircle, contentDescription = null)
+                }
+            )
+
+            Spacer(Modifier.height(10.dp))
+
+            Text(
+                text = if (provider == "fake") {
+                    "Serve para testar o app sem conta e sem gastar API."
+                } else {
+                    "Usa IA real da OpenAI. A API é separada da assinatura do ChatGPT."
+                },
+                color = MutedText,
+                style = MaterialTheme.typography.bodySmall
+            )
+        }
+
+        if (provider == "openai_compatible") {
+            Spacer(Modifier.height(12.dp))
+
+            SettingsSection("Modelo") {
+                Text(
+                    text = "Para começar, Luna é o perfil mais econômico.",
+                    color = MutedText,
+                    style = MaterialTheme.typography.bodySmall
+                )
+                Spacer(Modifier.height(10.dp))
+
+                models.forEach { (id, label) ->
+                    FilterChip(
+                        selected = model == id,
+                        onClick = {
+                            model = id
+                            vm.clearConnectionMessage()
+                        },
+                        label = { Text(label) }
+                    )
+                    Spacer(Modifier.height(6.dp))
+                }
+            }
+
+            Spacer(Modifier.height(12.dp))
+
+            SettingsSection("Conectar OpenAI") {
+                OutlinedTextField(
+                    value = apiKey,
+                    onValueChange = {
+                        apiKey = it
+                        vm.clearConnectionMessage()
+                    },
+                    label = {
+                        Text(
+                            if (state.hasApiKey) {
+                                "API key (já existe uma salva)"
+                            } else {
+                                "API key"
+                            }
+                        )
+                    },
+                    placeholder = { Text("sk-…") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation()
+                )
+
+                Spacer(Modifier.height(8.dp))
+
+                Text(
+                    text = "Sua chave fica salva localmente pelo Android Keystore.",
+                    color = MutedText,
+                    style = MaterialTheme.typography.bodySmall
+                )
+
+                Spacer(Modifier.height(12.dp))
+
+                OutlinedButton(
+                    onClick = { vm.testOpenAI(model, apiKey) },
+                    enabled = !connection.testing,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    if (connection.testing) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            strokeWidth = 2.dp
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text("Testando…")
+                    } else {
+                        Text("Testar conexão")
+                    }
+                }
+
+                Spacer(Modifier.height(8.dp))
+
+                Button(
+                    onClick = { vm.saveOpenAI(model, apiKey) },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Usar OpenAI no chat")
+                }
+
+                connection.message?.let { message ->
+                    Spacer(Modifier.height(10.dp))
+                    Surface(
+                        color = when (connection.success) {
+                            true -> Color(0xFF10271C)
+                            false -> Color(0xFF351419)
+                            null -> SurfaceDark2
+                        },
+                        border = BorderStroke(
+                            1.dp,
+                            when (connection.success) {
+                                true -> Color(0xFF275C41)
+                                false -> Color(0xFF6A2930)
+                                null -> BorderDark
+                            }
+                        ),
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = message,
+                            color = when (connection.success) {
+                                true -> Color(0xFF8DE6B5)
+                                false -> Color(0xFFFFA7AE)
+                                null -> MutedText
+                            },
+                            modifier = Modifier.padding(12.dp),
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                }
+            }
+        } else {
+            Spacer(Modifier.height(12.dp))
+
+            SettingsSection("Modo offline") {
+                Text(
+                    text = "Continua disponível para testar chat, memória e interface sem API.",
+                    color = MutedText
+                )
+                Spacer(Modifier.height(12.dp))
+                Button(
+                    onClick = { vm.useOffline() },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Usar modo offline")
+                }
             }
         }
 
@@ -820,7 +956,7 @@ fun SettingsScreen(vm: SettingsViewModel = hiltViewModel()) {
             InfoRow(Icons.Default.CheckCircle, "Sem upload automático")
             Spacer(Modifier.height(8.dp))
             Text(
-                text = "Aprendizado agora acontece diretamente pelo chat com “Ensine que”, “Lembre que” e “Guarde que”.",
+                text = "Aprendizado acontece pelo chat com “Ensine que”, “Lembre que” e “Guarde que”.",
                 color = MutedText,
                 style = MaterialTheme.typography.bodySmall
             )

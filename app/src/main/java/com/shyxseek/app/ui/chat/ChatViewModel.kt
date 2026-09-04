@@ -9,6 +9,7 @@ import com.shyxseek.app.data.repository.MemoryRepository
 import com.shyxseek.app.domain.ChatMessage
 import com.shyxseek.app.domain.MemoryType
 import com.shyxseek.app.domain.MessageRole
+import com.shyxseek.app.settings.AppSettings
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -24,7 +25,8 @@ data class ChatUiState(
     val messages: List<MessageEntity> = emptyList(),
     val draft: String = "",
     val generating: Boolean = false,
-    val error: String? = null
+    val error: String? = null,
+    val provider: String = "fake"
 )
 
 private data class LearningCommand(
@@ -37,7 +39,8 @@ private data class LearningCommand(
 class ChatViewModel @Inject constructor(
     private val repo: ConversationRepository,
     private val agent: AgentOrchestrator,
-    private val memoryRepo: MemoryRepository
+    private val memoryRepo: MemoryRepository,
+    private val settings: AppSettings
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(ChatUiState())
@@ -49,6 +52,11 @@ class ChatViewModel @Inject constructor(
     init {
         viewModelScope.launch {
             open(repo.create())
+        }
+        viewModelScope.launch {
+            settings.flow.collect { config ->
+                _state.update { it.copy(provider = config.provider) }
+            }
         }
     }
 
