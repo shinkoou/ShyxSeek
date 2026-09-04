@@ -14,45 +14,106 @@ private val Context.dataStore by preferencesDataStore("shyxseek_settings")
 const val OPENAI_BASE_URL = "https://api.openai.com"
 const val OPENAI_DEFAULT_MODEL = "gpt-5.6-luna"
 
+const val GEMINI_BASE_URL = "https://generativelanguage.googleapis.com"
+const val GEMINI_DEFAULT_MODEL = "gemini-3.1-flash-lite"
+
+const val LOCAL_PROVIDER_ID = "local_litert"
+const val GEMINI_PROVIDER_ID = "gemini_free"
+const val OPENAI_PROVIDER_ID = "openai_compatible"
+const val FAKE_PROVIDER_ID = "fake"
+
 data class ProviderSettings(
-    val provider: String = "fake",
-    val baseUrl: String = OPENAI_BASE_URL,
-    val model: String = OPENAI_DEFAULT_MODEL,
+    val provider: String = FAKE_PROVIDER_ID,
+    val model: String = "fake",
     val temperature: Double = 0.4,
-    val hasApiKey: Boolean = false
+    val openAiModel: String = OPENAI_DEFAULT_MODEL,
+    val geminiModel: String = GEMINI_DEFAULT_MODEL,
+    val localBackend: String = "cpu",
+    val hasOpenAiKey: Boolean = false,
+    val hasGeminiKey: Boolean = false
 )
 
 class AppSettings(
     private val context: Context,
     private val secrets: SecretStore
 ) {
-    private val provider = stringPreferencesKey("provider")
-    private val base = stringPreferencesKey("base_url")
-    private val model = stringPreferencesKey("model")
-    private val temp = doublePreferencesKey("temperature")
+    private val providerKey = stringPreferencesKey("provider")
+    private val openAiModelKey = stringPreferencesKey("openai_model")
+    private val geminiModelKey = stringPreferencesKey("gemini_model")
+    private val localBackendKey = stringPreferencesKey("local_backend")
+    private val tempKey = doublePreferencesKey("temperature")
 
     val flow: Flow<ProviderSettings> = context.dataStore.data.map { prefs ->
+        val provider = prefs[providerKey] ?: FAKE_PROVIDER_ID
+        val openAiModel = prefs[openAiModelKey]
+            ?.takeIf { it.isNotBlank() }
+            ?: OPENAI_DEFAULT_MODEL
+        val geminiModel = prefs[geminiModelKey]
+            ?.takeIf { it.isNotBlank() }
+            ?: GEMINI_DEFAULT_MODEL
+
         ProviderSettings(
-            provider = prefs[provider] ?: "fake",
-            baseUrl = prefs[base] ?: OPENAI_BASE_URL,
-            model = prefs[model]?.takeIf { it.isNotBlank() } ?: OPENAI_DEFAULT_MODEL,
-            temperature = prefs[temp] ?: 0.4,
-            hasApiKey = !secrets.get("api_key").isNullOrBlank()
+            provider = provider,
+            model = when (provider) {
+                OPENAI_PROVIDER_ID -> openAiModel
+                GEMINI_PROVIDER_ID -> geminiModel
+                LOCAL_PROVIDER_ID -> "qwen3-0.6b-local"
+                else -> "fake"
+            },
+            temperature = prefs[tempKey] ?: 0.4,
+            openAiModel = openAiModel,
+            geminiModel = geminiModel,
+            localBackend = prefs[localBackendKey] ?: "cpu",
+            hasOpenAiKey = !openAiKey().isNullOrBlank(),
+            hasGeminiKey = !geminiKey().isNullOrBlank()
         )
     }
 
-    suspend fun save(value: ProviderSettings, apiKey: String?) {
+    suspend fun setProvider(provider: String) {
         context.dataStore.edit { prefs ->
-            prefs[provider] = value.provider
-            prefs[base] = value.baseUrl
-            prefs[model] = value.model
-            prefs[temp] = value.temperature
-        }
-
-        if (!apiKey.isNullOrBlank()) {
-            secrets.put("api_key", apiKey.trim())
+            prefs[providerKey] = provider
         }
     }
 
-    fun apiKey(): String? = secrets.get("api_key")
+    suspend fun setLocal(backend: String) {
+        context.dataStore.edit { prefs ->
+            prefs[providerKey] = LOCAL_PROVIDER_ID
+            prefs[localBackendKey] = backend
+        }
+    }
+
+    suspend fun setGemini(model: String, apiKey: String?) {
+        context.dataStore.edit { prefs ->
+            prefs[providerKey] = GEMINI_PROVIDER_ID
+            prefs[geminiModelKey] = model.ifBlank { GEMINI_DEFAULT_MODEL }
+        }
+        if (!apiKey.isNullOrBlank()) {
+            secrets.put("gemini_api_key", apiKey.trim())
+        }
+    }
+
+    suspend fun setOpenAI(model: String, apiKey: String?) {
+        context.dataStore.edit { prefs ->
+            prefs[providerKey] = OPENAI_PROVIDER_ID
+            prefs[openAiModelKey] = model.ifBlank { OPENAI_DEFAULT_MODEL }
+        }
+        if (!apiKey.isNullOrBlank()) {
+            secrets.put("openai_api_key", apiKey.trim())
+        }
+    }
+
+    suspend fun setTemperature(value: Double) {
+        context.dataStore.edit { prefs ->
+            prefs[tempKey] = value
+        }
+    }
+
+    fun openAiKey(): String? =
+        secrets.get("openai_api_key")
+            ?: secrets.get("api_key") // compatibilidade com builds anteriores
+
+    fun geminiKey(): String? = secrets.get("gemini_api_key")
+
+    // Compatibilidade com o provider OpenAI já existente.
+    fun apiKey(): String? = openAiKey()
 }

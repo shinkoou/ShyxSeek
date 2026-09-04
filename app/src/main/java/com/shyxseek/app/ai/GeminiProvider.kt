@@ -6,18 +6,19 @@ import com.shyxseek.app.domain.ChatRequest
 import com.shyxseek.app.domain.MessageRole
 import com.shyxseek.app.domain.ProviderCapabilities
 import com.shyxseek.app.settings.AppSettings
-import com.shyxseek.app.settings.OPENAI_BASE_URL
-import com.shyxseek.app.settings.OPENAI_DEFAULT_MODEL
+import com.shyxseek.app.settings.GEMINI_BASE_URL
+import com.shyxseek.app.settings.GEMINI_DEFAULT_MODEL
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.first
-import kotlinx.serialization.Serializable
-import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonObject
 import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.MediaType.Companion.toMediaType
@@ -27,13 +28,13 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import java.io.IOException
 
-class OpenAICompatibleProvider(
+class GeminiProvider(
     private val client: OkHttpClient,
     private val settings: AppSettings
 ) : AIProvider {
 
-    override val id = "openai_compatible"
-    override val displayName = "OpenAI"
+    override val id = "gemini_free"
+    override val displayName = "Gemini grátis"
 
     override val capabilities = ProviderCapabilities(
         setOf(
@@ -42,61 +43,54 @@ class OpenAICompatibleProvider(
         )
     )
 
-    @Serializable
-    private data class ResponsesRequest(
-        val model: String,
-        val instructions: String,
-        val input: String,
-        val stream: Boolean = true,
-        val max_output_tokens: Int = 2048
-    )
-
     override fun streamChat(request: ChatRequest): Flow<ChatChunk> = callbackFlow {
         val current = settings.flow.first()
-        val key = settings.openAiKey()
+        val key = settings.geminiKey()
 
         if (key.isNullOrBlank()) {
             close(
                 IllegalStateException(
-                    "A OpenAI ainda não está conectada. Abra Ajustes e adicione sua API key."
+                    "O Gemini ainda não está conectado. " +
+                        "Abra Ajustes e adicione sua chave gratuita do Google AI Studio."
                 )
             )
             return@callbackFlow
         }
 
-        val model = current.model.ifBlank { OPENAI_DEFAULT_MODEL }
+        val model = current.model.ifBlank { GEMINI_DEFAULT_MODEL }
 
-        val transcript = request.messages.joinToString(separator = "\n\n") { message ->
-            val role = when (message.role) {
-                MessageRole.USER -> "Usuário"
-                MessageRole.ASSISTANT -> "ShyxSeek"
-                MessageRole.SYSTEM -> "Sistema"
-                MessageRole.TOOL -> "Ferramenta"
+        val transcript = request.messages
+            .takeLast(20)
+            .joinToString(separator = "\n\n") { message ->
+                val role = when (message.role) {
+                    MessageRole.USER -> "Usuário"
+                    MessageRole.ASSISTANT -> "ShyxSeek"
+                    MessageRole.SYSTEM -> "Sistema"
+                    MessageRole.TOOL -> "Ferramenta"
+                }
+                "$role: ${message.content}"
             }
-            "$role: ${message.content}"
-        }.ifBlank {
-            "Usuário: Olá."
+
+        val payload = buildJsonObject {
+            put("model", model)
+            put("system_instruction", request.systemPrompt)
+            put("input", transcript)
+            put("stream", true)
+            put("store", false)
+            putJsonObject("generation_config") {
+                put("temperature", current.temperature)
+                put("max_output_tokens", request.maxOutputTokens)
+            }
         }
 
-        val payload = ResponsesRequest(
-            model = model,
-            instructions = request.systemPrompt,
-            input = transcript,
-            stream = true,
-            max_output_tokens = request.maxOutputTokens
-        )
-
-        val body = Json.encodeToString(payload)
+        val body = payload
+            .toString()
             .toRequestBody("application/json".toMediaType())
-
-        val baseUrl = current.baseUrl
-            .ifBlank { OPENAI_BASE_URL }
-            .trimEnd('/')
 
         val call = client.newCall(
             Request.Builder()
-                .url("$baseUrl/v1/responses")
-                .header("Authorization", "Bearer $key")
+                .url("$GEMINI_BASE_URL/v1beta/interactions?alt=sse")
+                .header("x-goog-api-key", key)
                 .header("Accept", "text/event-stream")
                 .post(body)
                 .build()
@@ -105,18 +99,13 @@ class OpenAICompatibleProvider(
         call.enqueue(
             object : Callback {
                 override fun onFailure(call: Call, e: IOException) {
-                    close(
-                        IOException(
-                            "Não foi possível conectar à OpenAI: ${e.message}",
-                            e
-                        )
-                    )
+                    close(IOException("Falha ao conectar ao Gemini: ${e.message}", e))
                 }
 
                 override fun onResponse(call: Call, response: Response) {
                     if (!response.isSuccessful) {
                         val detail = response.body.string().take(600)
-                        val message = friendlyHttpError(response.code, detail)
+                        val message = friendlyError(response.code, detail)
                         response.close()
                         close(IOException(message))
                         return
@@ -141,27 +130,35 @@ class OpenAICompatibleProvider(
                                 Json.parseToJsonElement(data).jsonObject
                             }.getOrNull() ?: continue
 
-                            when (event["type"]?.jsonPrimitive?.contentOrNull) {
-                                "response.output_text.delta" -> {
-                                    event["delta"]
-                                        ?.jsonPrimitive
-                                        ?.contentOrNull
-                                        ?.takeIf { it.isNotEmpty() }
-                                        ?.let { delta ->
-                                            trySend(ChatChunk(delta))
-                                        }
+                            when (event["event_type"]?.jsonPrimitive?.contentOrNull) {
+                                "step.delta" -> {
+                                    val delta = event["delta"]?.jsonObject
+                                    if (
+                                        delta?.get("type")
+                                            ?.jsonPrimitive
+                                            ?.contentOrNull == "text"
+                                    ) {
+                                        delta["text"]
+                                            ?.jsonPrimitive
+                                            ?.contentOrNull
+                                            ?.takeIf { it.isNotEmpty() }
+                                            ?.let { text ->
+                                                trySend(ChatChunk(text))
+                                            }
+                                    }
                                 }
 
-                                "response.completed" -> {
+                                "interaction.completed" -> {
                                     trySend(ChatChunk("", true))
                                 }
 
-                                "response.failed",
                                 "error" -> {
-                                    val message = event["message"]
+                                    val message = event["error"]
+                                        ?.jsonObject
+                                        ?.get("message")
                                         ?.jsonPrimitive
                                         ?.contentOrNull
-                                        ?: "A OpenAI informou uma falha ao gerar a resposta."
+                                        ?: "O Gemini informou uma falha."
                                     close(IOException(message))
                                     return
                                 }
@@ -177,16 +174,17 @@ class OpenAICompatibleProvider(
             }
         )
 
-        awaitClose {
-            call.cancel()
-        }
+        awaitClose { call.cancel() }
     }
 
-    private fun friendlyHttpError(code: Int, detail: String): String = when (code) {
-        401 -> "API key da OpenAI inválida. Confira a chave em Ajustes."
-        403 -> "Sua conta da OpenAI não tem acesso a este recurso ou modelo."
-        404 -> "O modelo selecionado não foi encontrado na sua conta da OpenAI."
-        429 -> "A OpenAI recusou a solicitação por limite de uso ou saldo da API."
-        else -> "Erro da OpenAI (HTTP $code): $detail"
+    private fun friendlyError(
+        code: Int,
+        detail: String
+    ): String = when (code) {
+        400 -> "O Gemini recusou a solicitação. Confira o modelo selecionado."
+        401, 403 -> "Chave do Gemini inválida ou sem permissão."
+        404 -> "O modelo Gemini selecionado não foi encontrado."
+        429 -> "A cota gratuita do Gemini foi atingida. Tente novamente mais tarde."
+        else -> "Erro do Gemini (HTTP $code): $detail"
     }
 }

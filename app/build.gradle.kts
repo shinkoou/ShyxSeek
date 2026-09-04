@@ -15,8 +15,8 @@ android {
         applicationId = "com.shyxseek.app"
         minSdk = 23
         targetSdk = 36
-        versionCode = 3
-        versionName = "0.3.0"
+        versionCode = 4
+        versionName = "0.4.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -67,6 +67,8 @@ dependencies {
     implementation(libs.retrofit)
     implementation(libs.okhttp)
     implementation(libs.okhttp.logging)
+
+    implementation("com.google.ai.edge.litertlm:litertlm-android:0.16.1")
 
     testImplementation(kotlin("test"))
 }

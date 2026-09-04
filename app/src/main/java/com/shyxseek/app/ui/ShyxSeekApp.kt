@@ -1,5 +1,7 @@
 package com.shyxseek.app.ui
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
@@ -33,6 +35,10 @@ import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Speed
+import androidx.compose.material.icons.filled.Language
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Save
@@ -51,6 +57,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -254,9 +261,23 @@ fun ChatScreen(vm: ChatViewModel = hiltViewModel()) {
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             StatusPill(
-                icon = if (state.provider == "fake") Icons.Default.CloudOff else Icons.Default.CheckCircle,
-                text = if (state.provider == "fake") "Offline de teste" else "OpenAI ativa",
-                accent = if (state.provider == "fake") ShyxPurpleSoft else Color(0xFF77D6A3)
+                icon = when (state.provider) {
+                    "local_litert" -> Icons.Default.Memory
+                    "gemini_free" -> Icons.Default.Language
+                    "openai_compatible" -> Icons.Default.CheckCircle
+                    else -> Icons.Default.CloudOff
+                },
+                text = when (state.provider) {
+                    "local_litert" -> "IA local"
+                    "gemini_free" -> "Gemini grátis"
+                    "openai_compatible" -> "OpenAI"
+                    else -> "Offline de teste"
+                },
+                accent = if (state.provider == "fake") {
+                    ShyxPurpleSoft
+                } else {
+                    Color(0xFF77D6A3)
+                }
             )
             StatusPill(
                 icon = Icons.Default.Lock,
@@ -720,14 +741,28 @@ private fun ProjectCard(project: ProjectEntity) {
 fun SettingsScreen(vm: SettingsViewModel = hiltViewModel()) {
     val state by vm.state.collectAsState()
     val connection by vm.connection.collectAsState()
+    val localState by vm.localState.collectAsState()
 
     var provider by remember(state.provider) {
         mutableStateOf(state.provider)
     }
-    var model by remember(state.model) {
-        mutableStateOf(state.model.ifBlank { "gpt-5.6-luna" })
+    var openAiModel by remember(state.openAiModel) {
+        mutableStateOf(state.openAiModel)
     }
-    var apiKey by remember { mutableStateOf("") }
+    var geminiModel by remember(state.geminiModel) {
+        mutableStateOf(state.geminiModel)
+    }
+    var localBackend by remember(state.localBackend) {
+        mutableStateOf(state.localBackend)
+    }
+    var openAiKey by remember { mutableStateOf("") }
+    var geminiKey by remember { mutableStateOf("") }
+
+    val importLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        uri?.let(vm::importLocalModel)
+    }
 
     Column(
         modifier = Modifier
@@ -737,24 +772,37 @@ fun SettingsScreen(vm: SettingsViewModel = hiltViewModel()) {
             .padding(horizontal = 16.dp)
     ) {
         Spacer(Modifier.height(14.dp))
-        AppHeader("Ajustes", "IA, memória e privacidade")
+        AppHeader("Ajustes", "IA local, gratuita e na nuvem")
         Spacer(Modifier.height(16.dp))
 
         SettingsSection("Inteligência") {
             Text(
-                text = "Escolha como o ShyxSeek vai responder.",
+                text = "Escolha como o ShyxSeek vai responder. Você pode trocar quando quiser.",
                 color = MutedText,
                 style = MaterialTheme.typography.bodySmall
             )
             Spacer(Modifier.height(12.dp))
 
             ProviderChoiceCard(
-                title = "Offline de teste",
-                subtitle = "Sem conta, sem internet e sem custo. Respostas demonstrativas.",
-                selected = provider == "fake",
-                icon = Icons.Default.CloudOff,
+                title = "IA local",
+                subtitle = "Roda no celular · sem API · sem cobrança por mensagem",
+                selected = provider == "local_litert",
+                icon = Icons.Default.Memory,
                 onClick = {
-                    provider = "fake"
+                    provider = "local_litert"
+                    vm.clearConnectionMessage()
+                }
+            )
+
+            Spacer(Modifier.height(8.dp))
+
+            ProviderChoiceCard(
+                title = "Gemini grátis",
+                subtitle = "IA online com cota gratuita · requer chave do Google AI Studio",
+                selected = provider == "gemini_free",
+                icon = Icons.Default.Language,
+                onClick = {
+                    provider = "gemini_free"
                     vm.clearConnectionMessage()
                 }
             )
@@ -763,7 +811,7 @@ fun SettingsScreen(vm: SettingsViewModel = hiltViewModel()) {
 
             ProviderChoiceCard(
                 title = "OpenAI",
-                subtitle = "IA real pela API da OpenAI.",
+                subtitle = "IA real pela API da OpenAI · cobrança por uso",
                 selected = provider == "openai_compatible",
                 icon = Icons.Default.CheckCircle,
                 onClick = {
@@ -771,161 +819,428 @@ fun SettingsScreen(vm: SettingsViewModel = hiltViewModel()) {
                     vm.clearConnectionMessage()
                 }
             )
+
+            Spacer(Modifier.height(8.dp))
+
+            ProviderChoiceCard(
+                title = "Offline de teste",
+                subtitle = "Sem conta e sem internet · respostas demonstrativas",
+                selected = provider == "fake",
+                icon = Icons.Default.CloudOff,
+                onClick = {
+                    provider = "fake"
+                    vm.clearConnectionMessage()
+                }
+            )
         }
 
         Spacer(Modifier.height(12.dp))
 
-        if (provider == "openai_compatible") {
-            SettingsSection("Modelo") {
-                Text(
-                    text = "Luna economiza, Terra equilibra e Sol entrega a maior capacidade.",
-                    color = MutedText,
-                    style = MaterialTheme.typography.bodySmall
-                )
-                Spacer(Modifier.height(12.dp))
-
-                ModelChoiceCard(
-                    title = "Luna",
-                    subtitle = "Econômico · ideal para uso diário",
-                    selected = model == "gpt-5.6-luna",
-                    onClick = {
-                        model = "gpt-5.6-luna"
-                        vm.clearConnectionMessage()
-                    }
-                )
-
-                Spacer(Modifier.height(8.dp))
-
-                ModelChoiceCard(
-                    title = "Terra",
-                    subtitle = "Equilíbrio entre inteligência e custo",
-                    selected = model == "gpt-5.6-terra",
-                    onClick = {
-                        model = "gpt-5.6-terra"
-                        vm.clearConnectionMessage()
-                    }
-                )
-
-                Spacer(Modifier.height(8.dp))
-
-                ModelChoiceCard(
-                    title = "Sol",
-                    subtitle = "Máxima capacidade para tarefas complexas",
-                    selected = model == "gpt-5.6-sol",
-                    onClick = {
-                        model = "gpt-5.6-sol"
-                        vm.clearConnectionMessage()
-                    }
-                )
-            }
-
-            Spacer(Modifier.height(12.dp))
-
-            SettingsSection("Conectar OpenAI") {
-                OutlinedTextField(
-                    value = apiKey,
-                    onValueChange = {
-                        apiKey = it
-                        vm.clearConnectionMessage()
-                    },
-                    label = {
-                        Text(
-                            if (state.hasApiKey) {
-                                "API key · uma chave já está salva"
+        when (provider) {
+            "local_litert" -> {
+                SettingsSection("Modelo local") {
+                    Surface(
+                        color = if (localState.installed) {
+                            Color(0xFF10271C)
+                        } else {
+                            SurfaceDark2
+                        },
+                        border = BorderStroke(
+                            1.dp,
+                            if (localState.installed) {
+                                Color(0xFF275C41)
                             } else {
-                                "API key"
+                                BorderDark
+                            }
+                        ),
+                        shape = RoundedCornerShape(16.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(Modifier.padding(14.dp)) {
+                            Text(
+                                text = if (localState.installed) {
+                                    "Qwen3 0.6B INT4 instalado"
+                                } else {
+                                    "Qwen3 0.6B INT4 recomendado"
+                                },
+                                color = Color.White,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                text = if (localState.installed) {
+                                    "Pronto para conversar sem enviar mensagens para a nuvem."
+                                } else {
+                                    "Aproximadamente 350 MB. Otimizado para respostas diretas no aparelho."
+                                },
+                                color = MutedText,
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                            if (localState.installed && localState.sizeBytes > 0L) {
+                                Spacer(Modifier.height(5.dp))
+                                Text(
+                                    text = "Arquivo: ${formatModelSize(localState.sizeBytes)}",
+                                    color = Color(0xFF8DE6B5),
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                            }
+                        }
+                    }
+
+                    if (localState.busy) {
+                        Spacer(Modifier.height(12.dp))
+                        if (localState.progress >= 0) {
+                            LinearProgressIndicator(
+                                progress = { localState.progress / 100f },
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            Spacer(Modifier.height(5.dp))
+                            Text(
+                                text = "${localState.progress}% concluído",
+                                color = MutedText,
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        } else {
+                            LinearProgressIndicator(
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                    }
+
+                    localState.message?.let { message ->
+                        Spacer(Modifier.height(10.dp))
+                        ConnectionMessage(
+                            success = localState.installed,
+                            message = message
+                        )
+                    }
+
+                    Spacer(Modifier.height(12.dp))
+
+                    if (!localState.installed) {
+                        Button(
+                            onClick = vm::downloadLocalModel,
+                            enabled = !localState.busy,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Default.Download, contentDescription = null)
+                            Spacer(Modifier.width(8.dp))
+                            Text("Baixar modelo recomendado")
+                        }
+                    }
+
+                    OutlinedButton(
+                        onClick = {
+                            importLauncher.launch(
+                                arrayOf(
+                                    "application/octet-stream",
+                                    "application/x-binary",
+                                    "*/*"
+                                )
+                            )
+                        },
+                        enabled = !localState.busy,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            if (localState.installed) {
+                                "Substituir por arquivo .litertlm"
+                            } else {
+                                "Importar arquivo .litertlm"
                             }
                         )
-                    },
-                    placeholder = { Text("sk-…") },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    visualTransformation = PasswordVisualTransformation()
-                )
+                    }
 
-                Spacer(Modifier.height(8.dp))
+                    if (localState.installed) {
+                        Spacer(Modifier.height(12.dp))
+                        Text(
+                            text = "Desempenho",
+                            color = Color.White,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Spacer(Modifier.height(8.dp))
 
-                Row(
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
+                        ModelChoiceCard(
+                            title = "CPU · estável",
+                            subtitle = "Maior compatibilidade. Recomendado para começar.",
+                            selected = localBackend == "cpu",
+                            onClick = {
+                                localBackend = "cpu"
+                                vm.clearConnectionMessage()
+                            }
+                        )
+
+                        Spacer(Modifier.height(8.dp))
+
+                        ModelChoiceCard(
+                            title = "GPU · rápido",
+                            subtitle = "Usa OpenCL quando disponível. Se der erro, volte para CPU.",
+                            selected = localBackend == "gpu",
+                            onClick = {
+                                localBackend = "gpu"
+                                vm.clearConnectionMessage()
+                            }
+                        )
+
+                        Spacer(Modifier.height(12.dp))
+
+                        Button(
+                            onClick = { vm.useLocal(localBackend) },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Usar IA local no chat")
+                        }
+
+                        Spacer(Modifier.height(8.dp))
+
+                        OutlinedButton(
+                            onClick = vm::deleteLocalModel,
+                            enabled = !localState.busy,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Default.Delete, contentDescription = null)
+                            Spacer(Modifier.width(8.dp))
+                            Text("Remover modelo local")
+                        }
+                    }
+
+                    Spacer(Modifier.height(8.dp))
+                    InfoRow(
                         Icons.Default.Lock,
-                        contentDescription = null,
-                        tint = Color(0xFF77D6A3),
-                        modifier = Modifier.size(18.dp)
+                        "Suas mensagens ficam no aparelho quando a IA local está ativa"
                     )
-                    Spacer(Modifier.width(8.dp))
+                }
+            }
+
+            "gemini_free" -> {
+                SettingsSection("Gemini gratuito") {
                     Text(
-                        text = "Armazenada localmente pelo Android Keystore.",
+                        text = "Escolha um modelo com cota gratuita.",
                         color = MutedText,
                         style = MaterialTheme.typography.bodySmall
                     )
-                }
+                    Spacer(Modifier.height(12.dp))
 
-                Spacer(Modifier.height(12.dp))
+                    ModelChoiceCard(
+                        title = "Gemini 3.1 Flash-Lite",
+                        subtitle = "Mais econômico · recomendado para uso diário",
+                        selected = geminiModel == "gemini-3.1-flash-lite",
+                        onClick = {
+                            geminiModel = "gemini-3.1-flash-lite"
+                            vm.clearConnectionMessage()
+                        }
+                    )
 
-                OutlinedButton(
-                    onClick = { vm.testOpenAI(model, apiKey) },
-                    enabled = !connection.testing,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    if (connection.testing) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(18.dp),
-                            strokeWidth = 2.dp
+                    Spacer(Modifier.height(8.dp))
+
+                    ModelChoiceCard(
+                        title = "Gemini 3.6 Flash",
+                        subtitle = "Mais forte · também possui nível gratuito",
+                        selected = geminiModel == "gemini-3.6-flash",
+                        onClick = {
+                            geminiModel = "gemini-3.6-flash"
+                            vm.clearConnectionMessage()
+                        }
+                    )
+
+                    Spacer(Modifier.height(14.dp))
+
+                    OutlinedTextField(
+                        value = geminiKey,
+                        onValueChange = {
+                            geminiKey = it
+                            vm.clearConnectionMessage()
+                        },
+                        label = {
+                            Text(
+                                if (state.hasGeminiKey) {
+                                    "Chave Gemini · já existe uma salva"
+                                } else {
+                                    "Chave Gemini"
+                                }
+                            )
+                        },
+                        placeholder = { Text("Cole a chave do Google AI Studio") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        visualTransformation = PasswordVisualTransformation()
+                    )
+
+                    Spacer(Modifier.height(8.dp))
+                    InfoRow(
+                        Icons.Default.Lock,
+                        "A chave fica protegida pelo Android Keystore"
+                    )
+
+                    Spacer(Modifier.height(12.dp))
+
+                    OutlinedButton(
+                        onClick = { vm.testGemini(geminiModel, geminiKey) },
+                        enabled = !connection.testing,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        if (connection.testing) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                strokeWidth = 2.dp
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text("Testando conexão…")
+                        } else {
+                            Text("Testar Gemini")
+                        }
+                    }
+
+                    Spacer(Modifier.height(8.dp))
+
+                    Button(
+                        onClick = { vm.saveGemini(geminiModel, geminiKey) },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Usar Gemini no chat")
+                    }
+
+                    Spacer(Modifier.height(10.dp))
+                    Text(
+                        text = "O nível gratuito tem limites de uso. No nível gratuito, o Google informa que o conteúdo pode ser usado para melhorar produtos.",
+                        color = MutedText,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+
+                    connection.message?.let { message ->
+                        Spacer(Modifier.height(10.dp))
+                        ConnectionMessage(
+                            success = connection.success,
+                            message = message
                         )
-                        Spacer(Modifier.width(8.dp))
-                        Text("Testando conexão…")
-                    } else {
-                        Text("Testar conexão")
                     }
                 }
+            }
 
-                Spacer(Modifier.height(8.dp))
-
-                Button(
-                    onClick = { vm.saveOpenAI(model, apiKey) },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("Usar OpenAI no chat")
-                }
-
-                Spacer(Modifier.height(8.dp))
-
-                Text(
-                    text = "A API da OpenAI é cobrada separadamente da assinatura do ChatGPT.",
-                    color = MutedText,
-                    style = MaterialTheme.typography.bodySmall
-                )
-
-                connection.message?.let { message ->
-                    Spacer(Modifier.height(10.dp))
-                    ConnectionMessage(
-                        success = connection.success,
-                        message = message
+            "openai_compatible" -> {
+                SettingsSection("OpenAI") {
+                    ModelChoiceCard(
+                        title = "Luna",
+                        subtitle = "Econômico · ideal para uso diário",
+                        selected = openAiModel == "gpt-5.6-luna",
+                        onClick = {
+                            openAiModel = "gpt-5.6-luna"
+                            vm.clearConnectionMessage()
+                        }
                     )
+
+                    Spacer(Modifier.height(8.dp))
+
+                    ModelChoiceCard(
+                        title = "Terra",
+                        subtitle = "Equilíbrio entre inteligência e custo",
+                        selected = openAiModel == "gpt-5.6-terra",
+                        onClick = {
+                            openAiModel = "gpt-5.6-terra"
+                            vm.clearConnectionMessage()
+                        }
+                    )
+
+                    Spacer(Modifier.height(8.dp))
+
+                    ModelChoiceCard(
+                        title = "Sol",
+                        subtitle = "Máxima capacidade para tarefas complexas",
+                        selected = openAiModel == "gpt-5.6-sol",
+                        onClick = {
+                            openAiModel = "gpt-5.6-sol"
+                            vm.clearConnectionMessage()
+                        }
+                    )
+
+                    Spacer(Modifier.height(14.dp))
+
+                    OutlinedTextField(
+                        value = openAiKey,
+                        onValueChange = {
+                            openAiKey = it
+                            vm.clearConnectionMessage()
+                        },
+                        label = {
+                            Text(
+                                if (state.hasOpenAiKey) {
+                                    "API key · já existe uma salva"
+                                } else {
+                                    "API key"
+                                }
+                            )
+                        },
+                        placeholder = { Text("sk-…") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        visualTransformation = PasswordVisualTransformation()
+                    )
+
+                    Spacer(Modifier.height(8.dp))
+                    InfoRow(
+                        Icons.Default.Lock,
+                        "Armazenada localmente pelo Android Keystore"
+                    )
+
+                    Spacer(Modifier.height(12.dp))
+
+                    OutlinedButton(
+                        onClick = { vm.testOpenAI(openAiModel, openAiKey) },
+                        enabled = !connection.testing,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        if (connection.testing) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                strokeWidth = 2.dp
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text("Testando conexão…")
+                        } else {
+                            Text("Testar OpenAI")
+                        }
+                    }
+
+                    Spacer(Modifier.height(8.dp))
+
+                    Button(
+                        onClick = { vm.saveOpenAI(openAiModel, openAiKey) },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Usar OpenAI no chat")
+                    }
+
+                    connection.message?.let { message ->
+                        Spacer(Modifier.height(10.dp))
+                        ConnectionMessage(
+                            success = connection.success,
+                            message = message
+                        )
+                    }
                 }
             }
-        } else {
-            SettingsSection("Modo offline") {
-                Text(
-                    text = "Mantém chat, memória e interface disponíveis para teste sem usar API.",
-                    color = MutedText
-                )
-                Spacer(Modifier.height(12.dp))
-                Button(
-                    onClick = { vm.useOffline() },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("Usar modo offline")
-                }
 
-                connection.message?.let { message ->
-                    Spacer(Modifier.height(10.dp))
-                    ConnectionMessage(
-                        success = connection.success,
-                        message = message
+            else -> {
+                SettingsSection("Modo offline") {
+                    Text(
+                        text = "Mantém chat, memória e interface disponíveis para teste sem usar um modelo de IA real.",
+                        color = MutedText
                     )
+                    Spacer(Modifier.height(12.dp))
+                    Button(
+                        onClick = vm::useOffline,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Usar modo offline de teste")
+                    }
+
+                    connection.message?.let { message ->
+                        Spacer(Modifier.height(10.dp))
+                        ConnectionMessage(
+                            success = connection.success,
+                            message = message
+                        )
+                    }
                 }
             }
         }
@@ -933,9 +1248,9 @@ fun SettingsScreen(vm: SettingsViewModel = hiltViewModel()) {
         Spacer(Modifier.height(12.dp))
 
         SettingsSection("Memória e privacidade") {
-            InfoRow(Icons.Default.Lock, "Memórias salvas localmente")
+            InfoRow(Icons.Default.Lock, "Memórias do ShyxSeek salvas localmente")
             InfoRow(Icons.Default.CheckCircle, "Sem analytics e sem anúncios")
-            InfoRow(Icons.Default.CheckCircle, "Sem upload automático")
+            InfoRow(Icons.Default.CheckCircle, "Gemini usa store=false no ShyxSeek")
             Spacer(Modifier.height(8.dp))
             Text(
                 text = "Ensine pelo chat usando “Ensine que”, “Lembre que” ou “Guarde que”. O ShyxSeek recupera essas informações quando forem relevantes.",
@@ -959,7 +1274,7 @@ fun SettingsScreen(vm: SettingsViewModel = hiltViewModel()) {
                         fontWeight = FontWeight.SemiBold
                     )
                     Text(
-                        text = "v0.3.0 · Build consolidada",
+                        text = "v0.4.0 · IA local + Gemini gratuito",
                         color = MutedText,
                         style = MaterialTheme.typography.bodySmall
                     )
@@ -969,6 +1284,12 @@ fun SettingsScreen(vm: SettingsViewModel = hiltViewModel()) {
 
         Spacer(Modifier.height(24.dp))
     }
+}
+
+private fun formatModelSize(bytes: Long): String {
+    if (bytes <= 0L) return "0 MB"
+    val mb = bytes / (1024.0 * 1024.0)
+    return String.format("%.0f MB", mb)
 }
 
 @Composable
