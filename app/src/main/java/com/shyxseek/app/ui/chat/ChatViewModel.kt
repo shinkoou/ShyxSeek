@@ -1,179 +1,172 @@
-package com.shyxseek.app.ui.chat
+package com.shyxseek.app.ui.screens
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.shyxseek.app.agent.AgentOrchestrator
-import com.shyxseek.app.data.local.MessageEntity
-import com.shyxseek.app.data.repository.ConversationRepository
-import com.shyxseek.app.data.repository.MemoryRepository
-import com.shyxseek.app.domain.ChatMessage
-import com.shyxseek.app.domain.MemoryType
-import com.shyxseek.app.domain.MessageRole
 import com.shyxseek.app.settings.AppSettings
+import com.shyxseek.app.settings.OPENAI_BASE_URL
+import com.shyxseek.app.settings.OPENAI_DEFAULT_MODEL
+import com.shyxseek.app.settings.ProviderSettings
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.Job
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.collect
-import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
+import okhttp3.Request
 import javax.inject.Inject
 
-data class ChatUiState(
-    val conversationId: Long? = null,
-    val messages: List<MessageEntity> = emptyList(),
-    val draft: String = "",
-    val generating: Boolean = false,
-    val error: String? = null,
-    val provider: String = "fake"
-)
-
-private data class LearningCommand(
-    val content: String,
-    val type: MemoryType,
-    val confirmation: String
+data class ConnectionTestState(
+    val testing: Boolean = false,
+    val success: Boolean? = null,
+    val message: String? = null
 )
 
 @HiltViewModel
-class ChatViewModel @Inject constructor(
-    private val repo: ConversationRepository,
-    private val agent: AgentOrchestrator,
-    private val memoryRepo: MemoryRepository,
-    private val settings: AppSettings
+class SettingsViewModel @Inject constructor(
+    private val settings: AppSettings,
+    private val client: OkHttpClient
 ) : ViewModel() {
 
-    private val _state = MutableStateFlow(ChatUiState())
-    val state: StateFlow<ChatUiState> = _state.asStateFlow()
+    val state = settings.flow.stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5000),
+        ProviderSettings()
+    )
 
-    private var observe: Job? = null
-    private var generation: Job? = null
+    private val _connection = MutableStateFlow(ConnectionTestState())
+    val connection: StateFlow<ConnectionTestState> = _connection.asStateFlow()
 
-    init {
+    fun useOffline() {
         viewModelScope.launch {
-            open(repo.create())
+            settings.save(
+                ProviderSettings(
+                    provider = "fake",
+                    baseUrl = OPENAI_BASE_URL,
+                    model = state.value.model.ifBlank { OPENAI_DEFAULT_MODEL },
+                    temperature = state.value.temperature,
+                    hasApiKey = state.value.hasApiKey
+                ),
+                apiKey = null
+            )
+            _connection.value = ConnectionTestState(
+                success = true,
+                message = "Modo offline de teste ativado."
+            )
         }
+    }
+
+    fun saveOpenAI(model: String, key: String) {
         viewModelScope.launch {
-            settings.flow.collect { config ->
-                _state.update { it.copy(provider = config.provider) }
-            }
-        }
-    }
+            val hasKey = key.isNotBlank() || !settings.apiKey().isNullOrBlank()
 
-    fun draft(value: String) {
-        _state.update { it.copy(draft = value) }
-    }
+            settings.save(
+                ProviderSettings(
+                    provider = "openai_compatible",
+                    baseUrl = OPENAI_BASE_URL,
+                    model = model.ifBlank { OPENAI_DEFAULT_MODEL },
+                    temperature = state.value.temperature,
+                    hasApiKey = hasKey
+                ),
+                apiKey = key
+            )
 
-    fun useLearningShortcut(prefix: String) {
-        val current = _state.value.draft
-        if (current.isBlank()) {
-            _state.update { it.copy(draft = "$prefix ") }
-        } else if (!current.startsWith(prefix, ignoreCase = true)) {
-            _state.update { it.copy(draft = "$prefix $current") }
-        }
-    }
-
-    private fun open(id: Long) {
-        observe?.cancel()
-        _state.update { it.copy(conversationId = id) }
-        observe = viewModelScope.launch {
-            repo.messages(id).collect { messages ->
-                _state.update { it.copy(messages = messages) }
-            }
-        }
-    }
-
-    fun send() {
-        val text = state.value.draft.trim()
-        val id = state.value.conversationId ?: return
-        if (text.isBlank() || state.value.generating) return
-
-        _state.update {
-            it.copy(draft = "", generating = true, error = null)
-        }
-
-        generation = viewModelScope.launch {
-            try {
-                repo.add(id, MessageRole.USER, text)
-
-                val learning = parseLearningCommand(text)
-                if (learning != null) {
-                    memoryRepo.remember(
-                        content = learning.content,
-                        type = learning.type
-                    )
-                    repo.add(
-                        id,
-                        MessageRole.ASSISTANT,
-                        learning.confirmation
-                    )
-                    return@launch
+            _connection.value = ConnectionTestState(
+                success = if (hasKey) true else null,
+                message = if (hasKey) {
+                    "OpenAI selecionada. Você já pode voltar ao chat."
+                } else {
+                    "Cole sua API key para usar a OpenAI."
                 }
+            )
+        }
+    }
 
-                val history = repo.list(id).map {
-                    ChatMessage(it.role, it.content)
-                }
+    fun testOpenAI(model: String, typedKey: String) {
+        val key = typedKey.trim().ifBlank {
+            settings.apiKey().orEmpty()
+        }
 
-                val answer = StringBuilder()
-                agent.stream(history, null, null).collect { chunk ->
-                    if (chunk.text.isNotEmpty()) answer.append(chunk.text)
-                }
+        if (key.isBlank()) {
+            _connection.value = ConnectionTestState(
+                success = false,
+                message = "Cole sua API key primeiro."
+            )
+            return
+        }
 
-                repo.add(
-                    id,
-                    MessageRole.ASSISTANT,
-                    answer.toString().ifBlank {
-                        "Não recebi conteúdo do provider. Tente novamente."
+        _connection.value = ConnectionTestState(testing = true)
+
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    val targetModel = model.ifBlank { OPENAI_DEFAULT_MODEL }
+                    val request = Request.Builder()
+                        .url("$OPENAI_BASE_URL/v1/models/$targetModel")
+                        .header("Authorization", "Bearer $key")
+                        .get()
+                        .build()
+
+                    client.newCall(request).execute().use { response ->
+                        when {
+                            response.isSuccessful -> Pair(
+                                true,
+                                "Conexão com a OpenAI funcionando."
+                            )
+                            response.code == 401 -> Pair(false, "API key inválida.")
+                            response.code == 403 -> Pair(
+                                false,
+                                "Sua conta não tem acesso a este modelo."
+                            )
+                            response.code == 404 -> Pair(
+                                false,
+                                "Este modelo não está disponível na sua conta."
+                            )
+                            response.code == 429 -> Pair(
+                                false,
+                                "Limite ou saldo da API atingido."
+                            )
+                            else -> Pair(
+                                false,
+                                "A OpenAI respondeu com HTTP ${response.code}."
+                            )
+                        }
                     }
-                )
-            } catch (t: Throwable) {
-                _state.update {
-                    it.copy(error = t.message ?: "Falha desconhecida")
+                }.getOrElse { error ->
+                    Pair(
+                        false,
+                        "Falha de conexão: ${error.message ?: "erro desconhecido"}"
+                    )
                 }
-            } finally {
-                _state.update { it.copy(generating = false) }
             }
+
+            _connection.value = ConnectionTestState(
+                testing = false,
+                success = result.first,
+                message = result.second
+            )
         }
     }
 
-    fun stop() {
-        generation?.cancel()
-        _state.update { it.copy(generating = false) }
+    fun clearConnectionMessage() {
+        _connection.value = ConnectionTestState()
     }
 
-    private fun parseLearningCommand(message: String): LearningCommand? {
-        val trimmed = message.trim()
-        val normalized = trimmed.lowercase()
-
-        val commands = listOf(
-            Triple("ensine que", MemoryType.KNOWLEDGE, "Aprendi"),
-            Triple("lembre que", MemoryType.LONG_TERM, "Vou lembrar"),
-            Triple("guarde que", MemoryType.LONG_TERM, "Guardei")
-        )
-
-        for ((prefix, type, verb) in commands) {
-            if (normalized == prefix || normalized.startsWith("$prefix ")) {
-                val content = trimmed
-                    .drop(prefix.length)
-                    .trim()
-                    .trimStart(':', '-', ' ')
-
-                if (content.isBlank()) return null
-
-                val confirmation = buildString {
-                    append("$verb e salvei localmente:\n\n")
-                    append("“$content”\n\n")
-                    append("Essa informação fica neste dispositivo e poderá ser usada como contexto nas próximas conversas.")
-                }
-
-                return LearningCommand(
-                    content = content,
-                    type = type,
-                    confirmation = confirmation
-                )
-            }
+    fun save(provider: String, base: String, model: String, key: String) {
+        viewModelScope.launch {
+            settings.save(
+                ProviderSettings(
+                    provider = provider,
+                    baseUrl = base,
+                    model = model,
+                    temperature = state.value.temperature,
+                    hasApiKey = key.isNotBlank() || state.value.hasApiKey
+                ),
+                key
+            )
         }
-
-        return null
     }
 }
