@@ -1,0 +1,16 @@
+<resources>
+    <style name="Theme.ShyxSeek" parent="android:style/Theme.Material.NoActionBar">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:navigationBarColor">@color/shyxseek_black</item>
+        <item name="android:statusBarColor">@color/shyxseek_black</item>
+        <item name="android:windowBackground">@color/shyxseek_black</item>
+        <item name="android:colorAccent">@color/shyxseek_purple</item>
+        <item name="android:windowNoTitle">true</item>
+
+        <item name="android:windowSplashScreenBackground">@color/shyxseek_black</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
+        <item name="android:windowSplashScreenIconBackgroundColor">@color/shyxseek_black</item>
+        <item name="android:windowSplashScreenAnimationDuration">150</item>
+    </style>
+</resources>

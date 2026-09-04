@@ -1,6 +1,8 @@
 package com.shyxseek.app.ui
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -67,6 +69,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -78,6 +81,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.shyxseek.app.R
 import com.shyxseek.app.data.local.MemoryEntity
 import com.shyxseek.app.data.local.ProjectEntity
 import com.shyxseek.app.domain.MemoryType
@@ -127,21 +131,9 @@ private fun ShyxSeekSplash() {
         contentAlignment = Alignment.Center
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Surface(
-                modifier = Modifier.size(92.dp),
-                shape = RoundedCornerShape(28.dp),
-                color = Color(0xFF23104D),
-                border = BorderStroke(1.dp, Color(0xFF4F27A8))
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Text(
-                        text = "S",
-                        color = Color.White,
-                        fontWeight = FontWeight.Black,
-                        fontSize = 52.sp
-                    )
-                }
-            }
+            BrandIcon(
+                modifier = Modifier.size(104.dp)
+            )
 
             Spacer(Modifier.height(20.dp))
 
@@ -484,6 +476,17 @@ private fun StatusPill(
 }
 
 @Composable
+private fun BrandIcon(
+    modifier: Modifier = Modifier
+) {
+    Image(
+        painter = painterResource(id = R.drawable.shyxseek_brand),
+        contentDescription = "ShyxSeek",
+        modifier = modifier
+    )
+}
+
+@Composable
 private fun AppHeader(
     title: String,
     subtitle: String? = null
@@ -491,21 +494,9 @@ private fun AppHeader(
     Row(
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Surface(
-            modifier = Modifier.size(46.dp),
-            shape = RoundedCornerShape(14.dp),
-            color = Color(0xFF25124F),
-            border = BorderStroke(1.dp, Color(0xFF45228C))
-        ) {
-            Box(contentAlignment = Alignment.Center) {
-                Text(
-                    text = "S",
-                    color = Color.White,
-                    fontWeight = FontWeight.Black,
-                    fontSize = 24.sp
-                )
-            }
-        }
+        BrandIcon(
+            modifier = Modifier.size(46.dp)
+        )
 
         Spacer(Modifier.width(12.dp))
 
@@ -674,19 +665,9 @@ private fun ProjectCard(project: ProjectEntity) {
     ) {
         Column(Modifier.padding(18.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Surface(
-                    modifier = Modifier.size(42.dp),
-                    shape = RoundedCornerShape(13.dp),
-                    color = Color(0xFF281252)
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Text(
-                            "S",
-                            color = Color.White,
-                            fontWeight = FontWeight.Black
-                        )
-                    }
-                }
+                BrandIcon(
+                    modifier = Modifier.size(42.dp)
+                )
                 Spacer(Modifier.width(12.dp))
                 Column {
                     Text(
@@ -696,7 +677,7 @@ private fun ProjectCard(project: ProjectEntity) {
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        project.status,
+                        if (project.status == "initial development") "Desenvolvimento inicial" else project.status,
                         color = ShyxPurpleSoft
                     )
                 }
@@ -748,14 +729,6 @@ fun SettingsScreen(vm: SettingsViewModel = hiltViewModel()) {
     }
     var apiKey by remember { mutableStateOf("") }
 
-    val models = remember {
-        listOf(
-            "gpt-5.6-luna" to "Luna · econômico",
-            "gpt-5.6-terra" to "Terra · equilibrado",
-            "gpt-5.6-sol" to "Sol · máximo"
-        )
-    }
-
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -764,78 +737,86 @@ fun SettingsScreen(vm: SettingsViewModel = hiltViewModel()) {
             .padding(horizontal = 16.dp)
     ) {
         Spacer(Modifier.height(14.dp))
-        AppHeader("Ajustes", "Configure como o ShyxSeek responde")
+        AppHeader("Ajustes", "IA, memória e privacidade")
         Spacer(Modifier.height(16.dp))
 
-        SettingsSection("Escolha a inteligência") {
+        SettingsSection("Inteligência") {
             Text(
-                text = "Sem Base URL e sem configuração técnica.",
+                text = "Escolha como o ShyxSeek vai responder.",
                 color = MutedText,
                 style = MaterialTheme.typography.bodySmall
             )
             Spacer(Modifier.height(12.dp))
 
-            FilterChip(
+            ProviderChoiceCard(
+                title = "Offline de teste",
+                subtitle = "Sem conta, sem internet e sem custo. Respostas demonstrativas.",
                 selected = provider == "fake",
+                icon = Icons.Default.CloudOff,
                 onClick = {
                     provider = "fake"
                     vm.clearConnectionMessage()
-                },
-                label = { Text("Offline de teste") },
-                leadingIcon = {
-                    Icon(Icons.Default.CloudOff, contentDescription = null)
                 }
             )
 
             Spacer(Modifier.height(8.dp))
 
-            FilterChip(
+            ProviderChoiceCard(
+                title = "OpenAI",
+                subtitle = "IA real pela API da OpenAI.",
                 selected = provider == "openai_compatible",
+                icon = Icons.Default.CheckCircle,
                 onClick = {
                     provider = "openai_compatible"
                     vm.clearConnectionMessage()
-                },
-                label = { Text("OpenAI") },
-                leadingIcon = {
-                    Icon(Icons.Default.CheckCircle, contentDescription = null)
                 }
-            )
-
-            Spacer(Modifier.height(10.dp))
-
-            Text(
-                text = if (provider == "fake") {
-                    "Serve para testar o app sem conta e sem gastar API."
-                } else {
-                    "Usa IA real da OpenAI. A API é separada da assinatura do ChatGPT."
-                },
-                color = MutedText,
-                style = MaterialTheme.typography.bodySmall
             )
         }
 
-        if (provider == "openai_compatible") {
-            Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(12.dp))
 
+        if (provider == "openai_compatible") {
             SettingsSection("Modelo") {
                 Text(
-                    text = "Para começar, Luna é o perfil mais econômico.",
+                    text = "Luna economiza, Terra equilibra e Sol entrega a maior capacidade.",
                     color = MutedText,
                     style = MaterialTheme.typography.bodySmall
                 )
-                Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(12.dp))
 
-                models.forEach { (id, label) ->
-                    FilterChip(
-                        selected = model == id,
-                        onClick = {
-                            model = id
-                            vm.clearConnectionMessage()
-                        },
-                        label = { Text(label) }
-                    )
-                    Spacer(Modifier.height(6.dp))
-                }
+                ModelChoiceCard(
+                    title = "Luna",
+                    subtitle = "Econômico · ideal para uso diário",
+                    selected = model == "gpt-5.6-luna",
+                    onClick = {
+                        model = "gpt-5.6-luna"
+                        vm.clearConnectionMessage()
+                    }
+                )
+
+                Spacer(Modifier.height(8.dp))
+
+                ModelChoiceCard(
+                    title = "Terra",
+                    subtitle = "Equilíbrio entre inteligência e custo",
+                    selected = model == "gpt-5.6-terra",
+                    onClick = {
+                        model = "gpt-5.6-terra"
+                        vm.clearConnectionMessage()
+                    }
+                )
+
+                Spacer(Modifier.height(8.dp))
+
+                ModelChoiceCard(
+                    title = "Sol",
+                    subtitle = "Máxima capacidade para tarefas complexas",
+                    selected = model == "gpt-5.6-sol",
+                    onClick = {
+                        model = "gpt-5.6-sol"
+                        vm.clearConnectionMessage()
+                    }
+                )
             }
 
             Spacer(Modifier.height(12.dp))
@@ -850,7 +831,7 @@ fun SettingsScreen(vm: SettingsViewModel = hiltViewModel()) {
                     label = {
                         Text(
                             if (state.hasApiKey) {
-                                "API key (já existe uma salva)"
+                                "API key · uma chave já está salva"
                             } else {
                                 "API key"
                             }
@@ -864,11 +845,22 @@ fun SettingsScreen(vm: SettingsViewModel = hiltViewModel()) {
 
                 Spacer(Modifier.height(8.dp))
 
-                Text(
-                    text = "Sua chave fica salva localmente pelo Android Keystore.",
-                    color = MutedText,
-                    style = MaterialTheme.typography.bodySmall
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Default.Lock,
+                        contentDescription = null,
+                        tint = Color(0xFF77D6A3),
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        text = "Armazenada localmente pelo Android Keystore.",
+                        color = MutedText,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
 
                 Spacer(Modifier.height(12.dp))
 
@@ -883,7 +875,7 @@ fun SettingsScreen(vm: SettingsViewModel = hiltViewModel()) {
                             strokeWidth = 2.dp
                         )
                         Spacer(Modifier.width(8.dp))
-                        Text("Testando…")
+                        Text("Testando conexão…")
                     } else {
                         Text("Testar conexão")
                     }
@@ -898,44 +890,26 @@ fun SettingsScreen(vm: SettingsViewModel = hiltViewModel()) {
                     Text("Usar OpenAI no chat")
                 }
 
+                Spacer(Modifier.height(8.dp))
+
+                Text(
+                    text = "A API da OpenAI é cobrada separadamente da assinatura do ChatGPT.",
+                    color = MutedText,
+                    style = MaterialTheme.typography.bodySmall
+                )
+
                 connection.message?.let { message ->
                     Spacer(Modifier.height(10.dp))
-                    Surface(
-                        color = when (connection.success) {
-                            true -> Color(0xFF10271C)
-                            false -> Color(0xFF351419)
-                            null -> SurfaceDark2
-                        },
-                        border = BorderStroke(
-                            1.dp,
-                            when (connection.success) {
-                                true -> Color(0xFF275C41)
-                                false -> Color(0xFF6A2930)
-                                null -> BorderDark
-                            }
-                        ),
-                        shape = RoundedCornerShape(14.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text(
-                            text = message,
-                            color = when (connection.success) {
-                                true -> Color(0xFF8DE6B5)
-                                false -> Color(0xFFFFA7AE)
-                                null -> MutedText
-                            },
-                            modifier = Modifier.padding(12.dp),
-                            style = MaterialTheme.typography.bodySmall
-                        )
-                    }
+                    ConnectionMessage(
+                        success = connection.success,
+                        message = message
+                    )
                 }
             }
         } else {
-            Spacer(Modifier.height(12.dp))
-
             SettingsSection("Modo offline") {
                 Text(
-                    text = "Continua disponível para testar chat, memória e interface sem API.",
+                    text = "Mantém chat, memória e interface disponíveis para teste sem usar API.",
                     color = MutedText
                 )
                 Spacer(Modifier.height(12.dp))
@@ -945,24 +919,205 @@ fun SettingsScreen(vm: SettingsViewModel = hiltViewModel()) {
                 ) {
                     Text("Usar modo offline")
                 }
+
+                connection.message?.let { message ->
+                    Spacer(Modifier.height(10.dp))
+                    ConnectionMessage(
+                        success = connection.success,
+                        message = message
+                    )
+                }
             }
         }
 
         Spacer(Modifier.height(12.dp))
 
         SettingsSection("Memória e privacidade") {
-            InfoRow(Icons.Default.Lock, "Memórias ficam salvas localmente")
+            InfoRow(Icons.Default.Lock, "Memórias salvas localmente")
             InfoRow(Icons.Default.CheckCircle, "Sem analytics e sem anúncios")
             InfoRow(Icons.Default.CheckCircle, "Sem upload automático")
             Spacer(Modifier.height(8.dp))
             Text(
-                text = "Aprendizado acontece pelo chat com “Ensine que”, “Lembre que” e “Guarde que”.",
+                text = "Ensine pelo chat usando “Ensine que”, “Lembre que” ou “Guarde que”. O ShyxSeek recupera essas informações quando forem relevantes.",
                 color = MutedText,
                 style = MaterialTheme.typography.bodySmall
             )
         }
 
+        Spacer(Modifier.height(12.dp))
+
+        SettingsSection("Sobre") {
+            Row(
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                BrandIcon(modifier = Modifier.size(38.dp))
+                Spacer(Modifier.width(10.dp))
+                Column {
+                    Text(
+                        text = "ShyxSeek",
+                        color = Color.White,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        text = "v0.3.0 · Build consolidada",
+                        color = MutedText,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            }
+        }
+
         Spacer(Modifier.height(24.dp))
+    }
+}
+
+@Composable
+private fun ProviderChoiceCard(
+    title: String,
+    subtitle: String,
+    selected: Boolean,
+    icon: ImageVector,
+    onClick: () -> Unit
+) {
+    Surface(
+        color = if (selected) Color(0xFF21173A) else SurfaceDark2,
+        border = BorderStroke(
+            1.dp,
+            if (selected) ShyxPurple else BorderDark
+        ),
+        shape = RoundedCornerShape(16.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+    ) {
+        Row(
+            modifier = Modifier.padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Surface(
+                color = if (selected) Color(0xFF39216A) else Color(0xFF202027),
+                shape = CircleShape,
+                modifier = Modifier.size(40.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        icon,
+                        contentDescription = null,
+                        tint = if (selected) ShyxPurpleSoft else MutedText,
+                        modifier = Modifier.size(21.dp)
+                    )
+                }
+            }
+
+            Spacer(Modifier.width(12.dp))
+
+            Column(
+                modifier = Modifier.weight(1f)
+            ) {
+                Text(
+                    text = title,
+                    color = Color.White,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = subtitle,
+                    color = MutedText,
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+
+            if (selected) {
+                Icon(
+                    Icons.Default.CheckCircle,
+                    contentDescription = "Selecionado",
+                    tint = ShyxPurpleSoft
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ModelChoiceCard(
+    title: String,
+    subtitle: String,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    Surface(
+        color = if (selected) Color(0xFF21173A) else SurfaceDark2,
+        border = BorderStroke(
+            1.dp,
+            if (selected) ShyxPurple else BorderDark
+        ),
+        shape = RoundedCornerShape(15.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+    ) {
+        Row(
+            modifier = Modifier.padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(
+                modifier = Modifier.weight(1f)
+            ) {
+                Text(
+                    text = title,
+                    color = Color.White,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    text = subtitle,
+                    color = MutedText,
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+
+            if (selected) {
+                Icon(
+                    Icons.Default.CheckCircle,
+                    contentDescription = "Selecionado",
+                    tint = ShyxPurpleSoft
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ConnectionMessage(
+    success: Boolean?,
+    message: String
+) {
+    Surface(
+        color = when (success) {
+            true -> Color(0xFF10271C)
+            false -> Color(0xFF351419)
+            null -> SurfaceDark2
+        },
+        border = BorderStroke(
+            1.dp,
+            when (success) {
+                true -> Color(0xFF275C41)
+                false -> Color(0xFF6A2930)
+                null -> BorderDark
+            }
+        ),
+        shape = RoundedCornerShape(14.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Text(
+            text = message,
+            color = when (success) {
+                true -> Color(0xFF8DE6B5)
+                false -> Color(0xFFFFA7AE)
+                null -> MutedText
+            },
+            modifier = Modifier.padding(12.dp),
+            style = MaterialTheme.typography.bodySmall
+        )
     }
 }
 
